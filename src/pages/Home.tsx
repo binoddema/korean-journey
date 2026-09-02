@@ -4,6 +4,7 @@ import { ALL_LESSONS, TOPICS } from "../data";
 import { ACHIEVEMENTS, buildPlan, derive } from "../lib/progress";
 import { Bar, Card, CardTitle } from "../components/ui";
 import { StatChips } from "../components/Layout";
+import { TreCard } from "../components/TreCard";
 import type { Page } from "../components/Layout";
 
 export const Home = ({
@@ -60,6 +61,13 @@ export const Home = ({
           </div>
         </Card>
       )}
+
+      <TreCard
+        onNav={onNav}
+        onStartLezione={() => onStart(current.id)}
+        lezione={`Giorno ${current.day} — ${current.title}`}
+        parole={d.dueWords}
+      />
 
       <div className="grid-2">
         <Card className="pad today">
