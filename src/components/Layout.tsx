@@ -179,7 +179,7 @@ export const Layout = ({
           {(state.name || "🙂").slice(0, 1).toUpperCase()}
         </button>
         <div className="tm-testo">
-          <strong>{NAV.find((n) => attiva(n.id))?.label ?? "Oggi"}</strong>
+          <strong>{[...NAV, ...MENU_UTENTE].find((n) => n.id === page)?.label ?? "Oggi"}</strong>
           <small>{state.name || "Ospite"}</small>
         </div>
       </div>
