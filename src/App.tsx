@@ -4,6 +4,7 @@ import { Home } from "./pages/Home";
 import { Coreano } from "./pages/Coreano";
 import { Presto } from "./pages/Presto";
 import { Design } from "./pages/Design";
+import { Sport } from "./pages/Sport";
 import { Courses } from "./pages/Courses";
 import { Vocabulary } from "./pages/Vocabulary";
 import { Review } from "./pages/Review";
@@ -56,13 +57,7 @@ export default function App() {
       case "design":
         return <Design />;
       case "sport":
-        return (
-          <Presto
-            icon="🏋"
-            titolo="Sport"
-            testo="Qui arriveranno le schede di allenamento e il registro delle sessioni."
-          />
-        );
+        return <Sport />;
       case "calendario":
         return <Presto icon="🗓" titolo="Calendario" testo="Qui arriverà il calendario degli impegni." />;
       case "diario":
