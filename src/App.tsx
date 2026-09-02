@@ -3,6 +3,7 @@ import { Layout, type Page } from "./components/Layout";
 import { Home } from "./pages/Home";
 import { Coreano } from "./pages/Coreano";
 import { Presto } from "./pages/Presto";
+import { Design } from "./pages/Design";
 import { Courses } from "./pages/Courses";
 import { Vocabulary } from "./pages/Vocabulary";
 import { Review } from "./pages/Review";
@@ -53,13 +54,7 @@ export default function App() {
       case "settings":
         return <SettingsPage />;
       case "design":
-        return (
-          <Presto
-            icon="✎"
-            titolo="Design"
-            testo="Qui arriverà l'esercizio di design del giorno, con il timer e la foto del lavoro finito."
-          />
-        );
+        return <Design />;
       case "sport":
         return (
           <Presto
