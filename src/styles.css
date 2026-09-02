@@ -2510,3 +2510,47 @@ html[data-theme="dark"] .plan-verdict.late {
 }
 .ds-storico strong { display: block; font-size: 0.92rem; }
 .ds-storico small { font-size: 0.78rem; }
+
+/* ---------------- sport ---------------- */
+
+.sp-dettaglio { display: flex; flex-direction: column; gap: 14px; }
+
+.sp-testa { display: flex; gap: 14px; align-items: center; }
+.sp-nome { font-size: 1.4rem; margin: 0 0 2px; }
+
+.sp-disegno {
+  width: 96px;
+  height: 64px;
+  flex: none;
+  border-radius: 12px;
+  background: var(--track);
+  color: var(--accent);
+  display: grid;
+  place-items: center;
+  padding: 6px;
+}
+.sp-disegno svg { width: 100%; height: 100%; }
+
+.sp-mini {
+  width: 46px;
+  height: 34px;
+  flex: none;
+  border-radius: 9px;
+  background: var(--track);
+  color: var(--accent);
+  display: grid;
+  place-items: center;
+  padding: 3px;
+}
+.sp-mini svg { width: 100%; height: 100%; }
+
+.sp-errore {
+  background: var(--track);
+  border-radius: 12px;
+  padding: 11px 13px;
+  font-size: 0.88rem;
+  color: var(--muted);
+}
+.sp-errore strong { color: var(--text); }
+
+.sp-input { max-width: 130px; margin-bottom: 0; text-align: center; }
