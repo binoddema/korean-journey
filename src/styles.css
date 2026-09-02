@@ -2517,3 +2517,8 @@ html[data-theme="dark"] .plan-verdict.late {
 }
 .ds-storico strong { display: block; font-size: 0.92rem; }
 .ds-storico small { font-size: 0.78rem; }
+
+html, body {
+  max-width: 100%;
+  overflow-x: hidden;
+}
