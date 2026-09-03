@@ -53,6 +53,71 @@ const etichetta = (e: Esercizio, v: Valori) => {
   return `${v.serie}×${rip}${kg}`;
 };
 
+
+/* ------------------------------------------------------------------
+   Timer di recupero, con segnale acustico
+   ------------------------------------------------------------------ */
+
+function bip() {
+  try {
+    const AC =
+      window.AudioContext ||
+      (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+    const ac = new AC();
+    [0, 0.25, 0.5].forEach((t) => {
+      const o = ac.createOscillator();
+      const g = ac.createGain();
+      o.frequency.value = 880;
+      o.connect(g);
+      g.connect(ac.destination);
+      g.gain.setValueAtTime(0.0001, ac.currentTime + t);
+      g.gain.exponentialRampToValueAtTime(0.3, ac.currentTime + t + 0.02);
+      g.gain.exponentialRampToValueAtTime(0.0001, ac.currentTime + t + 0.18);
+      o.start(ac.currentTime + t);
+      o.stop(ac.currentTime + t + 0.2);
+    });
+  } catch {
+    /* audio non disponibile */
+  }
+}
+
+const Recupero = ({
+  secondi,
+  onFine,
+}: {
+  secondi: number;
+  onFine: () => void;
+}) => {
+  const [restanti, setRestanti] = React.useState(secondi);
+
+  React.useEffect(() => {
+    if (restanti <= 0) {
+      bip();
+      onFine();
+      return;
+    }
+    const t = setTimeout(() => setRestanti((r) => r - 1), 1000);
+    return () => clearTimeout(t);
+  }, [restanti, onFine]);
+
+  const pct = Math.round(((secondi - restanti) / secondi) * 100);
+
+  return (
+    <div className="sp-recupero">
+      <div className="sp-rec-testa">
+        <strong>{restanti}s</strong>
+        <button className="btn ghost sm" onClick={onFine}>
+          Salta
+        </button>
+      </div>
+      <div className="bar">
+        <div className="bar-fill" style={{ width: `${pct}%` }} />
+      </div>
+      <small className="muted">Recupero</small>
+    </div>
+  );
+};
+
 /* ------------------------------------------------------------------
    Scheda di un esercizio
    ------------------------------------------------------------------ */
@@ -70,6 +135,14 @@ const Dettaglio = ({
 }) => {
   const iniziali = valoriDi(esercizio, stato);
   const [v, setV] = React.useState<Valori>(iniziali);
+  const [fatte, setFatte] = React.useState(0);
+  const [inRecupero, setInRecupero] = React.useState(false);
+
+  const serieFatta = () => {
+    const n = fatte + 1;
+    setFatte(n);
+    if (n < v.serie) setInRecupero(true);
+  };
 
   const precedenti = stato.storico
     .filter((r) => r.esercizioId === esercizio.id)
@@ -87,16 +160,18 @@ const Dettaglio = ({
         ‹ Indietro
       </button>
 
-      <div className="sp-testa">
-        <div
-          className="sp-disegno"
-          dangerouslySetInnerHTML={{ __html: esercizio.disegno }}
-        />
-        <div>
+      <div className="sp-hero">
+        {esercizio.foto ? (
+          <img src={`esercizi/${esercizio.id}.jpg`} alt={esercizio.nome} />
+        ) : (
+          <div
+            className="sp-hero-svg"
+            dangerouslySetInnerHTML={{ __html: esercizio.disegno }}
+          />
+        )}
+        <div className="sp-hero-testo">
           <h1 className="sp-nome">{esercizio.nome}</h1>
-          <p className="muted" style={{ margin: 0 }}>
-            {etichetta(esercizio, v)} · recupero {v.recupero}s
-          </p>
+          <p>{etichetta(esercizio, v)} · recupero {v.recupero}s</p>
         </div>
       </div>
 
@@ -158,8 +233,27 @@ const Dettaglio = ({
           </div>
         </div>
 
+        <div className="sp-serie">
+          <div className="sp-pallini">
+            {Array.from({ length: v.serie }).map((_, i) => (
+              <span key={i} className={i < fatte ? "on" : ""} />
+            ))}
+          </div>
+          {inRecupero ? (
+            <Recupero secondi={v.recupero} onFine={() => setInRecupero(false)} />
+          ) : fatte < v.serie ? (
+            <button className="btn primary lg" onClick={serieFatta}>
+              Serie {fatte + 1} fatta
+            </button>
+          ) : (
+            <p className="muted center" style={{ margin: "6px 0 0" }}>
+              Tutte le serie completate.
+            </p>
+          )}
+        </div>
+
         <button className="btn primary lg" onClick={() => onRegistra(v)}>
-          Registra
+          Registra e chiudi
         </button>
       </Card>
 
@@ -247,10 +341,14 @@ export const Sport = () => {
             return (
               <Card key={id} className="pad">
                 <button className="voce-coreano" onClick={() => setAperto(e)}>
-                  <span
-                    className="sp-mini"
-                    dangerouslySetInnerHTML={{ __html: e.disegno }}
-                  />
+                  {e.foto ? (
+                    <img className="sp-mini" src={`esercizi/${e.id}.jpg`} alt="" />
+                  ) : (
+                    <span
+                      className="sp-mini"
+                      dangerouslySetInnerHTML={{ __html: e.disegno }}
+                    />
+                  )}
                   <span className="vc-testo">
                     <strong>{e.nome}</strong>
                     <small className="muted">{etichetta(e, v)}</small>
@@ -288,10 +386,14 @@ export const Sport = () => {
             return (
               <Card key={e.id} className="pad">
                 <button className="voce-coreano" onClick={() => setAperto(e)}>
-                  <span
-                    className="sp-mini"
-                    dangerouslySetInnerHTML={{ __html: e.disegno }}
-                  />
+                  {e.foto ? (
+                    <img className="sp-mini" src={`esercizi/${e.id}.jpg`} alt="" />
+                  ) : (
+                    <span
+                      className="sp-mini"
+                      dangerouslySetInnerHTML={{ __html: e.disegno }}
+                    />
+                  )}
                   <span className="vc-testo">
                     <strong>{e.nome}</strong>
                     <small className="muted">{etichetta(e, v)}</small>
