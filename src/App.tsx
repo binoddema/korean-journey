@@ -1,5 +1,8 @@
 import React from "react";
 import { Layout, type Page } from "./components/Layout";
+import { Accesso, useSessione } from "./components/Accesso";
+import { attivo } from "./lib/nuvola";
+import { scaricaTutto, avviaSincro } from "./lib/sincro";
 import { Home } from "./pages/Home";
 import { Coreano } from "./pages/Coreano";
 import { Presto } from "./pages/Presto";
@@ -16,7 +19,15 @@ import { LessonPage } from "./pages/Lesson";
 import { getLesson } from "./data";
 
 export default function App() {
+  const { sessione, pronto } = useSessione();
   const [page, setPage] = React.useState<Page>("home");
+  const [sincronizzato, setSincronizzato] = React.useState(!attivo);
+
+  React.useEffect(() => {
+    if (!attivo || !sessione) return;
+    scaricaTutto().then(() => setSincronizzato(true));
+    return avviaSincro();
+  }, [sessione]);
   const [lessonId, setLessonId] = React.useState<string | null>(null);
 
   const lesson = lessonId ? getLesson(lessonId) : undefined;
@@ -74,6 +85,11 @@ export default function App() {
         return <Home onNav={nav} onStart={start} />;
     }
   };
+
+  if (attivo && !pronto) return null;
+  if (attivo && !sessione) return <Accesso />;
+  if (attivo && !sincronizzato)
+    return <div className="accesso"><p className="muted center">Sincronizzo…</p></div>;
 
   return (
     <Layout page={page} onNav={nav}>
