@@ -2640,3 +2640,24 @@ img.sp-mini { object-fit: cover; background: #fff; padding: 0; }
   margin-bottom: 8px;
 }
 .sp-rec-testa strong { font-size: 1.8rem; font-variant-numeric: tabular-nums; }
+
+/* ---------------- accesso ---------------- */
+
+.accesso {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 24px 16px;
+  width: 100%;
+}
+.accesso .card { width: 100%; max-width: 380px; }
+.accesso .ex-input { margin-bottom: 10px; }
+.accesso-errore {
+  background: #fdeef1;
+  color: #b3243f;
+  border-radius: 12px;
+  padding: 10px 12px;
+  font-size: .88rem;
+  margin-bottom: 10px;
+}
+html[data-theme="dark"] .accesso-errore { background: #33222a; color: #f3a0b4; }
