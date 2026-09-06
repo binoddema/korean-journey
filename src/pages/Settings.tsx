@@ -4,6 +4,7 @@ import { derive, levelInfo } from "../lib/progress";
 import { speechState } from "../lib/speech";
 import { Card, CardTitle } from "../components/ui";
 import { PageHeader } from "../components/Layout";
+import { Sincronizzazione } from "../components/Sincronizzazione";
 
 const ACCENTS = ["#5b4be0", "#3b82f6", "#16a34a", "#e0526e", "#f0902b"];
 const DAYS = ["Lun", "Mar", "Mer", "Gio", "Ven", "Sab", "Dom"];
@@ -120,6 +121,8 @@ export const SettingsPage = () => {
   return (
     <>
       <PageHeader icon="⚙️" title="Impostazioni" sub="Personalizza la tua esperienza di studio" />
+
+      <Sincronizzazione />
       {msg && <div className="toast">{msg}</div>}
 
       <div className="grid-3">
