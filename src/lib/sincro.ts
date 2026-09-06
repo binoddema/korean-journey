@@ -1,65 +1,114 @@
-import { attivo, scarica, carica, quandoAggiornato } from "./nuvola";
+import { attivo, sb, sessione } from "./nuvola";
 
 /* ============================================================
    Sincronizzazione in blocco.
-   All'apertura: se il server ha una versione più recente di
-   quella locale, la scarica. Alla chiusura e ogni due minuti:
-   manda su quella locale.
-   Il resto dell'app continua a leggere e scrivere in
-   localStorage, quindi funziona anche senza rete.
+   Ogni archivio è una riga sulla tabella "archivi".
+   In locale continua a scrivere localStorage, quindi l'app
+   funziona anche senza rete.
    ============================================================ */
 
 const ARCHIVI = ["korean-journey-v1", "design-v1", "sport-v1"];
 
-/** Data dell'ultima modifica locale, per archivio. */
-function segnaLocale(nome: string) {
-  localStorage.setItem(`ts:${nome}`, String(Date.now()));
-}
+export type Esito = { ok: boolean; messaggio: string };
 
-function tsLocale(nome: string): number {
-  return Number(localStorage.getItem(`ts:${nome}`) ?? 0);
-}
+const tsLocale = (nome: string) => Number(localStorage.getItem(`ts:${nome}`) ?? 0);
+const segnaTs = (nome: string, ts: number) =>
+  localStorage.setItem(`ts:${nome}`, String(ts));
 
-/** Chiamata all'avvio, dopo l'accesso. */
-export async function scaricaTutto() {
-  if (!attivo) return;
-  for (const nome of ARCHIVI) {
-    const tsServer = await quandoAggiornato(nome);
-    if (tsServer > tsLocale(nome)) {
-      const dati = await scarica<unknown>(nome);
-      if (dati) {
-        localStorage.setItem(nome, JSON.stringify(dati));
-        localStorage.setItem(`ts:${nome}`, String(tsServer));
-      }
-    }
-  }
-}
+/* ---------------- salita ---------------- */
 
-/** Manda su gli archivi cambiati. */
-export async function caricaTutto() {
-  if (!attivo) return;
+export async function caricaTutto(): Promise<Esito> {
+  if (!attivo || !sb) return { ok: false, messaggio: "Sincronizzazione non attiva." };
+
+  const s = await sessione();
+  if (!s) return { ok: false, messaggio: "Non hai effettuato l'accesso." };
+
+  let mandati = 0;
+
   for (const nome of ARCHIVI) {
     const grezzo = localStorage.getItem(nome);
     if (!grezzo) continue;
+
+    let contenuto: unknown;
     try {
-      await carica(nome, JSON.parse(grezzo));
+      contenuto = JSON.parse(grezzo);
     } catch {
-      /* archivio illeggibile: si salta */
+      continue;
     }
+
+    const adesso = new Date().toISOString();
+    const { error } = await sb.from("archivi").upsert(
+      { utente: s.user.id, nome, contenuto, aggiornato: adesso },
+      { onConflict: "utente,nome" }
+    );
+
+    if (error) return { ok: false, messaggio: `Errore su ${nome}: ${error.message}` };
+
+    segnaTs(nome, Date.parse(adesso));
+    mandati++;
   }
+
+  return {
+    ok: true,
+    messaggio: mandati
+      ? `Salvati ${mandati} archivi sul server.`
+      : "Non c'era niente da salvare.",
+  };
 }
 
-/** Avvia la sincronizzazione periodica e alla chiusura. */
+/* ---------------- discesa ---------------- */
+
+export async function scaricaTutto(): Promise<Esito> {
+  if (!attivo || !sb) return { ok: false, messaggio: "Sincronizzazione non attiva." };
+
+  const s = await sessione();
+  if (!s) return { ok: false, messaggio: "Non hai effettuato l'accesso." };
+
+  const { data, error } = await sb
+    .from("archivi")
+    .select("nome, contenuto, aggiornato");
+
+  if (error) return { ok: false, messaggio: error.message };
+  if (!data || data.length === 0)
+    return { ok: true, messaggio: "Sul server non c'è ancora niente." };
+
+  let presi = 0;
+
+  for (const riga of data) {
+    if (!ARCHIVI.includes(riga.nome)) continue;
+    const tsServer = Date.parse(riga.aggiornato);
+    if (tsServer > tsLocale(riga.nome)) {
+      localStorage.setItem(riga.nome, JSON.stringify(riga.contenuto));
+      segnaTs(riga.nome, tsServer);
+      presi++;
+    }
+  }
+
+  return {
+    ok: true,
+    messaggio: presi
+      ? `Scaricati ${presi} archivi. Ricarica la pagina per vederli.`
+      : "Era già tutto aggiornato.",
+  };
+}
+
+/* ---------------- avvio automatico ---------------- */
+
 export function avviaSincro() {
   if (!attivo) return () => {};
 
-  const ogniTanto = setInterval(caricaTutto, 2 * 60 * 1000);
+  // Prima salita subito dopo l'accesso: così la tabella non resta vuota
+  // anche se l'app viene chiusa di colpo.
+  caricaTutto();
+
+  const ogniTanto = setInterval(caricaTutto, 30 * 1000);
 
   const allUscita = () => {
-    for (const n of ARCHIVI) segnaLocale(n);
     caricaTutto();
   };
+
   window.addEventListener("pagehide", allUscita);
+  window.addEventListener("blur", allUscita);
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState === "hidden") allUscita();
   });
@@ -67,5 +116,6 @@ export function avviaSincro() {
   return () => {
     clearInterval(ogniTanto);
     window.removeEventListener("pagehide", allUscita);
+    window.removeEventListener("blur", allUscita);
   };
 }
