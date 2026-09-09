@@ -2661,3 +2661,14 @@ img.sp-mini { object-fit: cover; background: #fff; padding: 0; }
   margin-bottom: 10px;
 }
 html[data-theme="dark"] .accesso-errore { background: #33222a; color: #f3a0b4; }
+
+/* ---------------- conflitto di sincronizzazione ---------------- */
+
+.sync-conflitto {
+  border: 1px solid var(--orange);
+  border-radius: 14px;
+  padding: 12px 14px;
+  background: #fff5e6;
+}
+html[data-theme="dark"] .sync-conflitto { background: #342c1f; }
+.sync-conflitto p:first-child { margin-top: 0; }
