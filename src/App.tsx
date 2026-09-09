@@ -25,8 +25,12 @@ export default function App() {
 
   React.useEffect(() => {
     if (!attivo || !sessione) return;
-    scaricaTutto().finally(() => setSincronizzato(true));
-    return avviaSincro();
+    let ferma: (() => void) | undefined;
+    scaricaTutto().finally(() => {
+      setSincronizzato(true);
+      ferma = avviaSincro();
+    });
+    return () => ferma?.();
   }, [sessione]);
   const [lessonId, setLessonId] = React.useState<string | null>(null);
 
