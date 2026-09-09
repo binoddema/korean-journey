@@ -1,208 +1,335 @@
 import { attivo, sb, sessione } from "./nuvola";
 
 /* ============================================================
-   Sincronizzazione.
+   Sincronizzazione con revisioni.
 
-   Tre regole, in ordine di importanza:
+   Ripresa dalla logica di cloud.js: una riga per utente, un
+   numero di revisione che cresce a ogni scrittura, e una
+   scrittura che avviene solo se il server è ancora alla
+   revisione attesa. Se nel frattempo ha scritto un altro
+   dispositivo, non si sovrascrive: si mette da parte una copia
+   di entrambe le versioni e si chiede.
 
-   1. Dopo l'accesso si SCARICA per primo, sempre.
-   2. Un archivio vuoto non sostituisce mai uno pieno,
-      né in salita né in discesa.
-   3. Il salvataggio parte da solo dopo ogni modifica, non
-      solo a intervalli: se chiudi di colpo, è già partito.
+   Il locale resta la fonte immediata: l'app non aspetta mai
+   la rete.
    ============================================================ */
 
-const ARCHIVI = ["korean-journey-v1", "design-v1", "sport-v1"];
+const ARCHIVI = ["korean-journey-v1", "design-v1", "sport-v1"] as const;
+const META = "kj.meta";
 
-export type Esito = { ok: boolean; messaggio: string };
+type Stato = Record<string, unknown>;
+type Meta = { uid?: string; rev?: number; sporco?: boolean };
 
-const tsLocale = (nome: string) => Number(localStorage.getItem(`ts:${nome}`) ?? 0);
-const segnaTs = (nome: string, ts: number) =>
-  localStorage.setItem(`ts:${nome}`, String(ts));
+export type Situazione =
+  | "spento"
+  | "sincronizzo"
+  | "ok"
+  | "errore"
+  | "conflitto";
 
-/* ------------------------------------------------------------------
-   Quanto "pesa" un archivio.
-   Serve a non far vincere il vuoto sul pieno.
-   ------------------------------------------------------------------ */
+export type Conflitto = {
+  locale: Stato;
+  remoto: { data: Stato; rev: number; device?: string; updated_at?: string };
+  motivo: string;
+};
 
-function consistenza(nome: string, dati: unknown): number {
-  if (!dati || typeof dati !== "object") return 0;
-  const d = dati as Record<string, unknown>;
+let situazione: Situazione = "spento";
+let messaggio = "";
+export let conflittoAperto: Conflitto | null = null;
 
-  if (nome === "korean-journey-v1") {
-    const xp = Number(d.xp ?? 0);
-    const srs = Object.keys((d.srs as object) ?? {}).length;
-    const log = Object.keys((d.log as object) ?? {}).length;
-    return xp + srs + log;
-  }
+const ascoltatori = new Set<() => void>();
 
-  if (nome === "design-v1") {
-    return Array.isArray(dati) ? dati.length : 0;
-  }
-
-  if (nome === "sport-v1") {
-    const storico = Array.isArray(d.storico) ? d.storico.length : 0;
-    const miei = Object.keys((d.miei as object) ?? {}).length;
-    const peso = Array.isArray(d.peso) ? d.peso.length : 0;
-    return storico + miei + peso;
-  }
-
-  return 1;
+export function osserva(f: () => void) {
+  ascoltatori.add(f);
+  return () => ascoltatori.delete(f);
 }
 
-function leggiLocale(nome: string): unknown | null {
-  const grezzo = localStorage.getItem(nome);
-  if (!grezzo) return null;
+export const leggiSituazione = () => ({ situazione, messaggio });
+
+function segnala(s: Situazione, m = "") {
+  situazione = s;
+  messaggio = m;
+  ascoltatori.forEach((f) => f());
+}
+
+/* ---------------- meta locale ---------------- */
+
+function meta(): Meta {
   try {
-    return JSON.parse(grezzo);
+    return JSON.parse(localStorage.getItem(META) ?? "{}") as Meta;
   } catch {
-    return null;
+    return {};
   }
 }
 
-/* ------------------------------------------------------------------
-   Discesa — si chiama per prima, dopo l'accesso
-   ------------------------------------------------------------------ */
-
-export async function scaricaTutto(): Promise<Esito> {
-  if (!attivo || !sb) return { ok: false, messaggio: "Sincronizzazione non attiva." };
-
-  const s = await sessione();
-  if (!s) return { ok: false, messaggio: "Non hai effettuato l'accesso." };
-
-  const { data, error } = await sb
-    .from("archivi")
-    .select("nome, contenuto, aggiornato");
-
-  if (error) return { ok: false, messaggio: error.message };
-  if (!data || data.length === 0)
-    return { ok: true, messaggio: "Sul server non c'è ancora niente." };
-
-  let presi = 0;
-  let protetti = 0;
-
-  for (const riga of data) {
-    if (!ARCHIVI.includes(riga.nome)) continue;
-
-    const pesoServer = consistenza(riga.nome, riga.contenuto);
-    const pesoLocale = consistenza(riga.nome, leggiLocale(riga.nome));
-
-    // Regola 2: il vuoto non cancella il pieno.
-    if (pesoServer < pesoLocale) {
-      protetti++;
-      continue;
-    }
-
-    const tsServer = Date.parse(riga.aggiornato);
-    if (tsServer > tsLocale(riga.nome) || pesoServer > pesoLocale) {
-      localStorage.setItem(riga.nome, JSON.stringify(riga.contenuto));
-      segnaTs(riga.nome, tsServer);
-      presi++;
-    }
-  }
-
-  const parti: string[] = [];
-  if (presi) parti.push(`scaricati ${presi} archivi`);
-  if (protetti)
-    parti.push(
-      `${protetti} non toccati: sul telefono hai più dati che sul server`
-    );
-  if (!parti.length) parti.push("era già tutto aggiornato");
-
-  return { ok: true, messaggio: parti.join(", ") + "." };
+function scriviMeta(p: Meta) {
+  const m = { ...meta(), ...p };
+  localStorage.setItem(META, JSON.stringify(m));
 }
 
-/* ------------------------------------------------------------------
-   Salita
-   ------------------------------------------------------------------ */
+function dispositivo(): string {
+  const ua = navigator.userAgent || "";
+  if (/iPhone/.test(ua)) return "iPhone";
+  if (/iPad/.test(ua)) return "iPad";
+  if (/Android/.test(ua)) return "Android";
+  if (/Macintosh/.test(ua)) return "Mac";
+  if (/Windows/.test(ua)) return "Windows";
+  return "altro";
+}
 
-export async function caricaTutto(): Promise<Esito> {
-  if (!attivo || !sb) return { ok: false, messaggio: "Sincronizzazione non attiva." };
+/* ---------------- stato locale ---------------- */
 
-  const s = await sessione();
-  if (!s) return { ok: false, messaggio: "Non hai effettuato l'accesso." };
-
-  let mandati = 0;
-  let saltati = 0;
-
+/** Raccoglie i tre archivi in un unico oggetto. */
+function raccogli(): Stato {
+  const s: Stato = {};
   for (const nome of ARCHIVI) {
-    const locale = leggiLocale(nome);
-    if (locale === null) continue;
-
-    const pesoLocale = consistenza(nome, locale);
-
-    // Regola 2, in salita: non mandare un archivio vuoto
-    // se sul server ce n'è uno con dei dati.
-    if (pesoLocale === 0) {
-      const { data } = await sb
-        .from("archivi")
-        .select("contenuto")
-        .eq("nome", nome)
-        .maybeSingle();
-      if (data && consistenza(nome, data.contenuto) > 0) {
-        saltati++;
-        continue;
-      }
+    const grezzo = localStorage.getItem(nome);
+    if (!grezzo) continue;
+    try {
+      s[nome] = JSON.parse(grezzo);
+    } catch {
+      /* archivio illeggibile: si salta */
     }
-
-    const adesso = new Date().toISOString();
-    const { error } = await sb.from("archivi").upsert(
-      { utente: s.user.id, nome, contenuto: locale, aggiornato: adesso },
-      { onConflict: "utente,nome" }
-    );
-
-    if (error) return { ok: false, messaggio: `Errore su ${nome}: ${error.message}` };
-
-    segnaTs(nome, Date.parse(adesso));
-    mandati++;
   }
-
-  const parti: string[] = [];
-  if (mandati) parti.push(`salvati ${mandati} archivi`);
-  if (saltati)
-    parti.push(`${saltati} saltati: erano vuoti e sul server ci sono dati`);
-  if (!parti.length) parti.push("non c'era niente da salvare");
-
-  return { ok: true, messaggio: parti.join(", ") + "." };
+  return s;
 }
 
-/* ------------------------------------------------------------------
-   Salvataggio automatico dopo ogni modifica
-   ------------------------------------------------------------------ */
+/** Riscrive i tre archivi da un oggetto arrivato dal server. */
+function applicaInLocale(dati: Stato) {
+  for (const nome of ARCHIVI) {
+    if (dati[nome] === undefined) continue;
+    scritturaOriginale(nome, JSON.stringify(dati[nome]));
+  }
+}
+
+/** Quanto "pesa" uno stato: serve a distinguere il vuoto dal pieno. */
+function quantita(s: Stato | null): number {
+  if (!s) return 0;
+  try {
+    return JSON.stringify(s).length;
+  } catch {
+    return 0;
+  }
+}
+
+const diverso = (a: unknown, b: unknown) => {
+  try {
+    return JSON.stringify(a) !== JSON.stringify(b);
+  } catch {
+    return true;
+  }
+};
+
+/* ---------------- server ---------------- */
+
+async function leggiRemoto() {
+  const { data, error } = await sb!
+    .from("app_state")
+    .select("data,rev,device,updated_at")
+    .maybeSingle();
+  if (error) throw error;
+  return data as
+    | { data: Stato; rev: number; device?: string; updated_at?: string }
+    | null;
+}
+
+async function backup(dati: Stato | null, rev: number, motivo: string) {
+  if (!dati) return;
+  const s = await sessione();
+  if (!s) return;
+  // Il backup non deve mai bloccare il resto.
+  await sb!
+    .from("app_state_backup")
+    .insert({ user_id: s.user.id, data: dati, rev, motivo })
+    .then(
+      () => {},
+      () => {}
+    );
+}
+
+/**
+ * Scrive lo stato. Se attesoRev è un numero, la scrittura avviene
+ * solo se il server è ancora a quella revisione.
+ * Restituisce la nuova revisione, o null se qualcun altro ha scritto prima.
+ */
+async function scriviRemoto(dati: Stato, attesoRev: number | null): Promise<number | null> {
+  const s = await sessione();
+  if (!s) return null;
+
+  const nuovoRev = (attesoRev ?? 0) + 1;
+
+  if (attesoRev === null) {
+    const { data, error } = await sb!
+      .from("app_state")
+      .upsert(
+        { user_id: s.user.id, data: dati, rev: nuovoRev, device: dispositivo() },
+        { onConflict: "user_id" }
+      )
+      .select("rev")
+      .single();
+    if (error) throw error;
+    return data.rev as number;
+  }
+
+  const { data, error } = await sb!
+    .from("app_state")
+    .update({ data: dati, rev: nuovoRev, device: dispositivo() })
+    .eq("user_id", s.user.id)
+    .eq("rev", attesoRev)
+    .select("rev");
+
+  if (error) throw error;
+  if (!data || data.length === 0) return null; // qualcun altro ha scritto
+  return data[0].rev as number;
+}
+
+/* ---------------- esiti ---------------- */
+
+function adotta(dati: Stato, rev: number, uid: string) {
+  applicaInLocale(dati);
+  scriviMeta({ uid, rev, sporco: false });
+}
+
+async function spingi(dati: Stato, attesoRev: number | null, uid: string) {
+  const rev = await scriviRemoto(dati, attesoRev);
+  if (rev === null) {
+    // Il server è cambiato sotto di noi: si riprova da capo.
+    return sincronizza();
+  }
+  scriviMeta({ uid, rev, sporco: false });
+  segnala("ok", "Salvato.");
+}
+
+async function apriConflitto(locale: Stato, remoto: NonNullable<Awaited<ReturnType<typeof leggiRemoto>>>, motivo: string) {
+  await backup(remoto.data, remoto.rev, "conflitto-server");
+  await backup(locale, 0, "conflitto-locale");
+  conflittoAperto = { locale, remoto, motivo };
+  segnala("conflitto", motivo);
+}
+
+/* ---------------- sincronizzazione ---------------- */
+
+export async function sincronizza(): Promise<void> {
+  if (!attivo || !sb) return segnala("spento");
+
+  const s = await sessione();
+  if (!s) return segnala("spento", "Non hai effettuato l'accesso.");
+
+  segnala("sincronizzo");
+
+  try {
+    const locale = raccogli();
+    const remoto = await leggiRemoto();
+    const m = meta();
+
+    // 1. Account nuovo: porto su quello che c'è sul dispositivo.
+    if (!remoto) {
+      await backup(locale, 0, "primo caricamento");
+      const rev = await scriviRemoto(locale, null);
+      scriviMeta({ uid: s.user.id, rev: rev ?? 1, sporco: false });
+      return segnala("ok", "Dati del dispositivo caricati sul server.");
+    }
+
+    const stessoUtente = m.uid === s.user.id;
+    const revLocale = stessoUtente ? m.rev ?? 0 : null;
+    const sporco = Boolean(m.sporco);
+
+    // 2. Primo accesso con questo account su questo dispositivo.
+    if (!stessoUtente) {
+      if (quantita(locale) < 400 || !diverso(locale, remoto.data)) {
+        adotta(remoto.data, remoto.rev, s.user.id);
+        return segnala("ok", "Dati scaricati dal server.");
+      }
+      return apriConflitto(
+        locale,
+        remoto,
+        "primo accesso con questo account su questo dispositivo"
+      );
+    }
+
+    // 3. Stessa revisione.
+    if (revLocale === remoto.rev) {
+      if (!sporco) return segnala("ok", "Era già tutto aggiornato.");
+      return spingi(locale, remoto.rev, s.user.id);
+    }
+
+    // 4. Il dispositivo è avanti: una scrittura non era andata a buon fine.
+    if ((revLocale ?? 0) > remoto.rev) {
+      return spingi(locale, remoto.rev, s.user.id);
+    }
+
+    // 5. Il server è avanti e qui non ci sono modifiche: lo adotto.
+    if (!sporco) {
+      adotta(remoto.data, remoto.rev, s.user.id);
+      return segnala("ok", "Aggiornato da un altro dispositivo.");
+    }
+
+    // 6. Server avanti E modifiche locali non inviate: conflitto vero.
+    if (!diverso(locale, remoto.data)) {
+      adotta(remoto.data, remoto.rev, s.user.id);
+      return segnala("ok", "Era già tutto aggiornato.");
+    }
+    return apriConflitto(locale, remoto, "modifiche su due dispositivi");
+  } catch (e) {
+    segnala("errore", e instanceof Error ? e.message : "Errore di rete.");
+  }
+}
+
+/* ---------------- risoluzione del conflitto ---------------- */
+
+export async function risolviConflitto(scelta: "questo" | "server") {
+  const c = conflittoAperto;
+  if (!c) return;
+  const s = await sessione();
+  if (!s) return;
+
+  conflittoAperto = null;
+
+  if (scelta === "server") {
+    adotta(c.remoto.data, c.remoto.rev, s.user.id);
+    return segnala("ok", "Adottata la versione del server.");
+  }
+
+  scriviMeta({ uid: s.user.id, rev: c.remoto.rev, sporco: true });
+  await spingi(c.locale, c.remoto.rev, s.user.id);
+}
+
+/* ---------------- salvataggio automatico ---------------- */
 
 let attesa: ReturnType<typeof setTimeout> | null = null;
 
-/** Chiede un salvataggio: parte dopo 3 secondi di quiete. */
-export function segnalaModifica() {
-  if (!attivo) return;
+export function salvaOra() {
+  return sincronizza();
+}
+
+function programmaSalvataggio() {
+  scriviMeta({ sporco: true });
   if (attesa) clearTimeout(attesa);
   attesa = setTimeout(() => {
     attesa = null;
-    caricaTutto();
-  }, 3000);
+    sincronizza();
+  }, 2500);
 }
 
-/* ------------------------------------------------------------------
-   Avvio
-   ------------------------------------------------------------------ */
+/* La scrittura originale, usata quando applichiamo dati arrivati dal
+   server: non deve far ripartire un salvataggio. */
+let scritturaOriginale: (chiave: string, valore: string) => void = (k, v) =>
+  localStorage.setItem(k, v);
 
 export function avviaSincro() {
   if (!attivo) return () => {};
 
-  // Regola 3: intercetta ogni scrittura negli archivi dell'app
-  // e programma un salvataggio. Così non serve ricordarsi niente.
-  const scritturaOriginale = localStorage.setItem.bind(localStorage);
+  scritturaOriginale = localStorage.setItem.bind(localStorage);
   localStorage.setItem = (chiave: string, valore: string) => {
     scritturaOriginale(chiave, valore);
-    if (ARCHIVI.includes(chiave)) segnalaModifica();
+    if ((ARCHIVI as readonly string[]).includes(chiave)) programmaSalvataggio();
   };
 
-  const ogniTanto = setInterval(caricaTutto, 60 * 1000);
+  const ogniTanto = setInterval(sincronizza, 2 * 60 * 1000);
 
   const allUscita = () => {
-    caricaTutto();
+    if (meta().sporco) sincronizza();
   };
-
   window.addEventListener("pagehide", allUscita);
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState === "hidden") allUscita();
