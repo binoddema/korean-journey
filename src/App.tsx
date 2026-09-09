@@ -2,7 +2,7 @@ import React from "react";
 import { Layout, type Page } from "./components/Layout";
 import { Accesso, useSessione } from "./components/Accesso";
 import { attivo } from "./lib/nuvola";
-import { scaricaTutto, avviaSincro } from "./lib/sincro";
+import { sincronizza, avviaSincro } from "./lib/sincro";
 import { Home } from "./pages/Home";
 import { Coreano } from "./pages/Coreano";
 import { Presto } from "./pages/Presto";
@@ -26,7 +26,7 @@ export default function App() {
   React.useEffect(() => {
     if (!attivo || !sessione) return;
     let ferma: (() => void) | undefined;
-    scaricaTutto().finally(() => {
+    sincronizza().finally(() => {
       setSincronizzato(true);
       ferma = avviaSincro();
     });
