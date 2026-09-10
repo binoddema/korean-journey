@@ -186,8 +186,15 @@ async function scriviRemoto(dati: Stato, attesoRev: number | null): Promise<numb
 /* ---------------- esiti ---------------- */
 
 function adotta(dati: Stato, rev: number, uid: string) {
+  // Lo store dell'app ha già letto gli archivi all'avvio: se scriviamo
+  // e basta, lui li risovrascrive con quelli vecchi. Quindi, quando i
+  // dati arrivati sono diversi da quelli in memoria, ricarichiamo.
+  const prima = raccogli();
   applicaInLocale(dati);
   scriviMeta({ uid, rev, sporco: false });
+  if (diverso(prima, dati)) {
+    setTimeout(() => window.location.reload(), 150);
+  }
 }
 
 async function spingi(dati: Stato, attesoRev: number | null, uid: string) {
