@@ -256,8 +256,26 @@ export async function sincronizza(): Promise<void> {
 
     // 3. Stessa revisione.
     if (revLocale === remoto.rev) {
-      if (!sporco) return segnala("ok", "Era già tutto aggiornato.");
-      return spingi(locale, remoto.rev, s.user.id);
+      if (sporco) return spingi(locale, remoto.rev, s.user.id);
+
+      // Anche senza modifiche segnalate, i contenuti possono essere
+      // diversi: un salvataggio interrotto, un'uscita e rientro, un
+      // contrassegno perso. Non fidarsi del contrassegno: guardare i dati.
+      if (!diverso(locale, remoto.data))
+        return segnala("ok", "Era già tutto aggiornato.");
+
+      const qLocale = quantita(locale);
+      const qRemoto = quantita(remoto.data);
+
+      if (qLocale > qRemoto) {
+        await backup(remoto.data, remoto.rev, "sorpasso-locale");
+        return spingi(locale, remoto.rev, s.user.id);
+      }
+      if (qRemoto > qLocale) {
+        adotta(remoto.data, remoto.rev, s.user.id);
+        return segnala("ok", "Aggiornato dal server.");
+      }
+      return apriConflitto(locale, remoto, "due versioni della stessa misura");
     }
 
     // 4. Il dispositivo è avanti: una scrittura non era andata a buon fine.
@@ -265,8 +283,14 @@ export async function sincronizza(): Promise<void> {
       return spingi(locale, remoto.rev, s.user.id);
     }
 
-    // 5. Il server è avanti e qui non ci sono modifiche: lo adotto.
+    // 5. Il server è avanti e qui non ci sono modifiche.
     if (!sporco) {
+      // Prima di adottarlo: se in locale c'è molto più materiale,
+      // il contrassegno si è perso e i dati buoni sono questi.
+      if (quantita(locale) > quantita(remoto.data) && diverso(locale, remoto.data)) {
+        await backup(remoto.data, remoto.rev, "sorpasso-locale");
+        return spingi(locale, remoto.rev, s.user.id);
+      }
       adotta(remoto.data, remoto.rev, s.user.id);
       return segnala("ok", "Aggiornato da un altro dispositivo.");
     }
