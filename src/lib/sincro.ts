@@ -104,11 +104,39 @@ function applicaInLocale(dati: Stato) {
   }
 }
 
+/**
+ * Trasforma un valore in testo con le chiavi sempre in ordine alfabetico.
+ *
+ * Supabase salva i dati come jsonb, e jsonb NON conserva l'ordine delle
+ * chiavi: li restituisce riordinati. Confrontando con JSON.stringify,
+ * i dati del server risultavano sempre "diversi" da quelli locali anche
+ * quando erano identici. Da lì nascevano i conflitti continui e le
+ * ricariche che facevano uscire dagli esercizi.
+ */
+function stabile(v: unknown): string {
+  if (Array.isArray(v)) {
+    return "[" + v.map((x) => (x === undefined ? "null" : stabile(x))).join(",") + "]";
+  }
+  if (v !== null && typeof v === "object") {
+    const o = v as Record<string, unknown>;
+    return (
+      "{" +
+      Object.keys(o)
+        .filter((k) => o[k] !== undefined)
+        .sort()
+        .map((k) => JSON.stringify(k) + ":" + stabile(o[k]))
+        .join(",") +
+      "}"
+    );
+  }
+  return JSON.stringify(v) ?? "null";
+}
+
 /** Quanto "pesa" uno stato: serve a distinguere il vuoto dal pieno. */
 function quantita(s: Stato | null): number {
   if (!s) return 0;
   try {
-    return JSON.stringify(s).length;
+    return stabile(s).length;
   } catch {
     return 0;
   }
@@ -116,11 +144,15 @@ function quantita(s: Stato | null): number {
 
 const diverso = (a: unknown, b: unknown) => {
   try {
-    return JSON.stringify(a) !== JSON.stringify(b);
+    return stabile(a) !== stabile(b);
   } catch {
     return true;
   }
 };
+
+/** XP del coreano contenuti in uno stato. */
+const xpDi = (s: Stato | null) =>
+  Number((s?.["korean-journey-v1"] as Record<string, unknown> | undefined)?.xp ?? 0);
 
 /* ---------------- server ---------------- */
 
@@ -187,38 +219,95 @@ async function scriviRemoto(dati: Stato, attesoRev: number | null): Promise<numb
 
 /* ---------------- esiti ---------------- */
 
-function adotta(dati: Stato, rev: number, uid: string) {
-  // Lo store dell'app ha già letto gli archivi all'avvio: se scriviamo
-  // e basta, lui li risovrascrive con quelli vecchi. Quindi, quando i
-  // dati arrivati sono diversi da quelli in memoria, ricarichiamo.
+/* Diventa true quando sta per partire una ricarica: da lì in poi
+   non si sincronizza più niente. */
+let ricaricando = false;
+
+/**
+ * Applica i dati del server sul dispositivo.
+ * Se viene passato localeLetto (lo stato letto all'inizio della
+ * sincronizzazione) e nel frattempo i dati locali sono cambiati,
+ * perché l'utente ha risposto a un esercizio mentre si aspettava
+ * la rete, NON si sovrascrive: si ripete la sincronizzazione.
+ */
+function adotta(dati: Stato, rev: number, uid: string, localeLetto?: Stato): boolean {
   const prima = raccogli();
+  if (localeLetto && diverso(prima, localeLetto)) {
+    ancoraUnaVolta = true;
+    return false;
+  }
   applicaInLocale(dati);
   scriviMeta({ uid, rev, sporco: false });
+  // Lo store dell'app ha già letto gli archivi all'avvio: se scriviamo
+  // e basta, lui li risovrascrive con quelli vecchi. Quindi, quando i
+  // dati arrivati sono DAVVERO diversi da quelli in memoria, ricarichiamo.
   if (diverso(prima, dati)) {
+    ricaricando = true;
     setTimeout(() => window.location.reload(), 150);
   }
+  return true;
 }
 
-async function spingi(dati: Stato, attesoRev: number | null, uid: string) {
+type Remoto = NonNullable<Awaited<ReturnType<typeof leggiRemoto>>>;
+
+async function spingi(dati: Stato, attesoRev: number | null, uid: string, remoto?: Remoto) {
+  // Rete di sicurezza: se questa scrittura fa SCENDERE gli XP (per
+  // esempio dopo un reset), prima si mette da parte la versione del server.
+  if (remoto && xpDi(dati) < xpDi(remoto.data)) {
+    await backup(remoto.data, remoto.rev, "prima-di-scendere");
+  }
   const rev = await scriviRemoto(dati, attesoRev);
   if (rev === null) {
-    // Il server è cambiato sotto di noi: si riprova da capo.
-    return sincronizza();
+    // Il server è cambiato sotto di noi: si riprova da capo, dopo.
+    ancoraUnaVolta = true;
+    return;
   }
   scriviMeta({ uid, rev, sporco: false });
   segnala("ok", "Salvato.");
 }
 
-async function apriConflitto(locale: Stato, remoto: NonNullable<Awaited<ReturnType<typeof leggiRemoto>>>, motivo: string) {
-  await backup(remoto.data, remoto.rev, "conflitto-server");
-  await backup(locale, 0, "conflitto-locale");
+async function apriConflitto(locale: Stato, remoto: Remoto, motivo: string, revLocale: number) {
+  // Se lo stesso conflitto è già aperto non si riempie la tabella di
+  // backup: le copie sono già state messe da parte la prima volta.
+  const giaAperto = conflittoAperto?.remoto.rev === remoto.rev;
+  if (!giaAperto) {
+    await backup(remoto.data, remoto.rev, "conflitto-server");
+    await backup(locale, revLocale, "conflitto-locale");
+  }
   conflittoAperto = { locale, remoto, motivo };
   segnala("conflitto", motivo);
 }
 
 /* ---------------- sincronizzazione ---------------- */
 
-export async function sincronizza(): Promise<void> {
+/* Una sola sincronizzazione alla volta. Prima potevano partirne più
+   insieme (salvataggio automatico, controllo ogni 2 minuti, uscita
+   dall'app) e si pestavano i piedi a vicenda. */
+let inCorso: Promise<void> | null = null;
+let ancoraUnaVolta = false;
+
+export function sincronizza(): Promise<void> {
+  if (inCorso) {
+    ancoraUnaVolta = true;
+    return inCorso;
+  }
+  inCorso = (async () => {
+    try {
+      let giri = 0;
+      do {
+        ancoraUnaVolta = false;
+        await unPasso();
+        giri += 1;
+      } while (ancoraUnaVolta && !ricaricando && giri < 3);
+    } finally {
+      inCorso = null;
+    }
+  })();
+  return inCorso;
+}
+
+async function unPasso(): Promise<void> {
+  if (ricaricando) return;
   if (!attivo || !sb) return segnala("spento");
 
   const s = await sessione();
@@ -246,19 +335,21 @@ export async function sincronizza(): Promise<void> {
     // 2. Primo accesso con questo account su questo dispositivo.
     if (!stessoUtente) {
       if (quantita(locale) < 400 || !diverso(locale, remoto.data)) {
-        adotta(remoto.data, remoto.rev, s.user.id);
-        return segnala("ok", "Dati scaricati dal server.");
+        if (adotta(remoto.data, remoto.rev, s.user.id, locale))
+          segnala("ok", "Dati scaricati dal server.");
+        return;
       }
       return apriConflitto(
         locale,
         remoto,
-        "primo accesso con questo account su questo dispositivo"
+        "primo accesso con questo account su questo dispositivo",
+        0
       );
     }
 
     // 3. Stessa revisione.
     if (revLocale === remoto.rev) {
-      if (sporco) return spingi(locale, remoto.rev, s.user.id);
+      if (sporco) return spingi(locale, remoto.rev, s.user.id, remoto);
 
       // Anche senza modifiche segnalate, i contenuti possono essere
       // diversi: un salvataggio interrotto, un'uscita e rientro, un
@@ -271,18 +362,19 @@ export async function sincronizza(): Promise<void> {
 
       if (qLocale > qRemoto) {
         await backup(remoto.data, remoto.rev, "sorpasso-locale");
-        return spingi(locale, remoto.rev, s.user.id);
+        return spingi(locale, remoto.rev, s.user.id, remoto);
       }
       if (qRemoto > qLocale) {
-        adotta(remoto.data, remoto.rev, s.user.id);
-        return segnala("ok", "Aggiornato dal server.");
+        if (adotta(remoto.data, remoto.rev, s.user.id, locale))
+          segnala("ok", "Aggiornato dal server.");
+        return;
       }
-      return apriConflitto(locale, remoto, "due versioni della stessa misura");
+      return apriConflitto(locale, remoto, "due versioni della stessa misura", revLocale ?? 0);
     }
 
     // 4. Il dispositivo è avanti: una scrittura non era andata a buon fine.
     if ((revLocale ?? 0) > remoto.rev) {
-      return spingi(locale, remoto.rev, s.user.id);
+      return spingi(locale, remoto.rev, s.user.id, remoto);
     }
 
     // 5. Il server è avanti e qui non ci sono modifiche.
@@ -296,16 +388,17 @@ export async function sincronizza(): Promise<void> {
     if (!sporco) {
       if (diverso(locale, remoto.data))
         await backup(locale, revLocale ?? 0, "prima-di-adottare");
-      adotta(remoto.data, remoto.rev, s.user.id);
-      return segnala("ok", "Aggiornato da un altro dispositivo.");
+      if (adotta(remoto.data, remoto.rev, s.user.id, locale))
+        segnala("ok", "Aggiornato da un altro dispositivo.");
+      return;
     }
 
     // 6. Server avanti E modifiche locali non inviate: conflitto vero.
     if (!diverso(locale, remoto.data)) {
-      adotta(remoto.data, remoto.rev, s.user.id);
+      adotta(remoto.data, remoto.rev, s.user.id, locale);
       return segnala("ok", "Era già tutto aggiornato.");
     }
-    return apriConflitto(locale, remoto, "modifiche su due dispositivi");
+    return apriConflitto(locale, remoto, "modifiche su due dispositivi", revLocale ?? 0);
   } catch (e) {
     segnala("errore", e instanceof Error ? e.message : "Errore di rete.");
   }
@@ -327,7 +420,8 @@ export async function risolviConflitto(scelta: "questo" | "server") {
   }
 
   scriviMeta({ uid: s.user.id, rev: c.remoto.rev, sporco: true });
-  await spingi(c.locale, c.remoto.rev, s.user.id);
+  await spingi(c.locale, c.remoto.rev, s.user.id, c.remoto);
+  if (ancoraUnaVolta) await sincronizza();
 }
 
 /* ---------------- salvataggio automatico ---------------- */
@@ -423,10 +517,6 @@ export async function ripristinaDaFile(testo: string): Promise<Esito> {
     return { ok: false, messaggio: "Non riconosco il formato del file." };
   }
 
-  const xpDi = (s: Stato | null) =>
-    Number(
-      (s?.["korean-journey-v1"] as Record<string, unknown> | undefined)?.xp ?? 0
-    );
   const xp = xpDi(stato);
 
   // Senza collegamento non si va avanti: scrivere solo in locale è
