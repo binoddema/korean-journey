@@ -7,6 +7,8 @@ import {
   leggiSituazione,
   conflittoAperto,
   risolviConflitto,
+  ripristinaDaFile,
+  type Esito,
 } from "../lib/sincro";
 
 const ETICHETTE: Record<string, string> = {
@@ -19,6 +21,8 @@ const ETICHETTE: Record<string, string> = {
 
 export const Sincronizzazione = () => {
   const [email, setEmail] = React.useState<string | null>(null);
+  const [ripristino, setRipristino] = React.useState<Esito | null>(null);
+  const [attesa, setAttesa] = React.useState(false);
   const [, forza] = React.useReducer((n: number) => n + 1, 0);
 
   React.useEffect(() => {
@@ -91,6 +95,40 @@ export const Sincronizzazione = () => {
         Il salvataggio è automatico: parte da solo dopo ogni sessione. Questo
         pulsante serve solo se vuoi forzarlo.
       </p>
+
+      <div className="sync-ripristino">
+        <h4>Ripristina da un backup</h4>
+        <p className="muted" style={{ fontSize: ".84rem" }}>
+          Carica un file esportato. Sostituisce i dati di questo dispositivo e
+          del server, dopo averne messo da parte una copia.
+        </p>
+        <label className="btn outline sm" style={{ display: "inline-block" }}>
+          {attesa ? "Un momento…" : "Scegli il file"}
+          <input
+            type="file"
+            accept="application/json,.json"
+            hidden
+            disabled={attesa}
+            onChange={async (e) => {
+              const f = e.target.files?.[0];
+              if (!f) return;
+              setAttesa(true);
+              setRipristino(null);
+              const testo = await f.text();
+              setRipristino(await ripristinaDaFile(testo));
+              setAttesa(false);
+            }}
+          />
+        </label>
+        {ripristino && (
+          <div
+            className={ripristino.ok ? "note" : "accesso-errore"}
+            style={{ marginTop: 10 }}
+          >
+            {ripristino.messaggio}
+          </div>
+        )}
+      </div>
 
       <button className="btn ghost" style={{ marginTop: 8 }} onClick={() => esci()}>
         Esci dall'account
