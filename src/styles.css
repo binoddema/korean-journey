@@ -2672,3 +2672,11 @@ html[data-theme="dark"] .accesso-errore { background: #33222a; color: #f3a0b4; }
 }
 html[data-theme="dark"] .sync-conflitto { background: #342c1f; }
 .sync-conflitto p:first-child { margin-top: 0; }
+
+.sync-ripristino {
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+}
+.sync-ripristino h4 { margin: 0 0 4px; font-size: .95rem; }
+.sync-ripristino label { cursor: pointer; }
