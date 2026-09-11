@@ -286,13 +286,16 @@ export async function sincronizza(): Promise<void> {
     }
 
     // 5. Il server è avanti e qui non ci sono modifiche.
+    //
+    // Qui il server vince sempre. C'era una scorciatoia che, se i dati
+    // locali pesavano più byte, li spingeva sopra a quelli del server:
+    // il peso in byte non dice quale versione sia più recente, e questo
+    // faceva riscrivere a un dispositivo rimasto indietro il lavoro
+    // appena salvato da un altro. Prima di adottare si mette comunque
+    // da parte una copia del locale, così non si perde niente.
     if (!sporco) {
-      // Prima di adottarlo: se in locale c'è molto più materiale,
-      // il contrassegno si è perso e i dati buoni sono questi.
-      if (quantita(locale) > quantita(remoto.data) && diverso(locale, remoto.data)) {
-        await backup(remoto.data, remoto.rev, "sorpasso-locale");
-        return spingi(locale, remoto.rev, s.user.id);
-      }
+      if (diverso(locale, remoto.data))
+        await backup(locale, revLocale ?? 0, "prima-di-adottare");
       adotta(remoto.data, remoto.rev, s.user.id);
       return segnala("ok", "Aggiornato da un altro dispositivo.");
     }
