@@ -420,18 +420,33 @@ export async function ripristinaDaFile(testo: string): Promise<Esito> {
     return { ok: false, messaggio: "Non riconosco il formato del file." };
   }
 
-  const xp = Number(
-    (stato["korean-journey-v1"] as Record<string, unknown> | undefined)?.xp ?? 0
-  );
+  const xpDi = (s: Stato | null) =>
+    Number(
+      (s?.["korean-journey-v1"] as Record<string, unknown> | undefined)?.xp ?? 0
+    );
+  const xp = xpDi(stato);
 
+  // Senza collegamento non si va avanti: scrivere solo in locale è
+  // quello che finora faceva sparire i dati al riavvio, perché poi il
+  // server rimandava indietro la versione vecchia.
   if (!attivo || !sb) {
-    applicaInLocale(stato);
-    setTimeout(() => window.location.reload(), 300);
-    return { ok: true, messaggio: `Ripristinati ${xp} XP sul dispositivo.` };
+    return {
+      ok: false,
+      messaggio:
+        "Il collegamento al server non è configurato su questo sito. " +
+        "Non procedo: in locale il ripristino verrebbe cancellato al riavvio.",
+    };
   }
 
   const s = await sessione();
-  if (!s) return { ok: false, messaggio: "Non hai effettuato l'accesso." };
+  if (!s) {
+    return {
+      ok: false,
+      messaggio:
+        "Non risulti collegato. Fai l'accesso con la tua email, poi ripeti " +
+        "il ripristino.",
+    };
+  }
 
   try {
     const remoto = await leggiRemoto();
@@ -449,13 +464,35 @@ export async function ripristinaDaFile(testo: string): Promise<Esito> {
         },
         { onConflict: "user_id" }
       );
-    if (error) return { ok: false, messaggio: error.message };
+    if (error)
+      return { ok: false, messaggio: "Il server ha rifiutato: " + error.message };
+
+    // Controprova: si rilegge davvero quello che c'è sul server, invece
+    // di fidarsi del fatto che la scrittura non abbia dato errore.
+    const verifica = await leggiRemoto();
+    const xpServer = xpDi(verifica?.data ?? null);
+
+    if (xpServer !== xp) {
+      return {
+        ok: false,
+        messaggio:
+          `Scrittura accettata ma sul server risultano ${xpServer} XP invece ` +
+          `di ${xp}. Non applico niente in locale: i dati sul dispositivo ` +
+          `restano come sono.`,
+      };
+    }
 
     applicaInLocale(stato);
-    scriviMeta({ uid: s.user.id, rev: nuovoRev, sporco: false });
+    scriviMeta({ uid: s.user.id, rev: verifica?.rev ?? nuovoRev, sporco: false });
+    conflittoAperto = null;
+    segnala("ok", "Ripristino completato.");
 
-    setTimeout(() => window.location.reload(), 400);
-    return { ok: true, messaggio: `Ripristinati ${xp} XP e salvati sul server.` };
+    return {
+      ok: true,
+      messaggio:
+        `Fatto: ${xp} XP scritti sul dispositivo e verificati sul server ` +
+        `(revisione ${verifica?.rev ?? nuovoRev}). Ora ricarica l'app.`,
+    };
   } catch (e) {
     return {
       ok: false,
