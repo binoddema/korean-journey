@@ -395,7 +395,7 @@ export const SettingsPage = () => {
               <button
                 className="btn danger sm"
                 onClick={() => {
-                  if (confirm("Vuoi cancellare tutti i progressi? L'operazione non è reversibile.")) {
+                  if (confirm("Vuoi cancellare tutti i progressi? Verranno azzerati anche sul server e su tutti i tuoi dispositivi.")) {
                     reset();
                     flash("Progressi azzerati");
                   }
