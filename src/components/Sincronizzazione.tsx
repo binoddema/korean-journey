@@ -126,6 +126,16 @@ export const Sincronizzazione = () => {
             style={{ marginTop: 10 }}
           >
             {ripristino.messaggio}
+            {ripristino.ok && (
+              <div style={{ marginTop: 10 }}>
+                <button
+                  className="btn sm"
+                  onClick={() => window.location.reload()}
+                >
+                  Ricarica l'app
+                </button>
+              </div>
+            )}
           </div>
         )}
       </div>
