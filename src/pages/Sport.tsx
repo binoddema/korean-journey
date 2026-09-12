@@ -1,4 +1,5 @@
 import React from "react";
+import { EVENTO_DATI } from "../lib/sincro";
 import { Card } from "../components/ui";
 import { PageHeader } from "../components/Layout";
 import { ESERCIZI, SCHEDE, trova, cerca, type Esercizio } from "../data/sport";
@@ -27,6 +28,15 @@ function leggi(): Stato {
     /* archivio illeggibile: si riparte puliti */
   }
   return { miei: {}, storico: [], peso: [] };
+}
+
+/** Rilegge l'archivio quando la sincronizzazione porta dati dal server. */
+function usaRilettura(imposta: (v: Stato) => void) {
+  React.useEffect(() => {
+    const rileggi = () => imposta(leggi());
+    window.addEventListener(EVENTO_DATI, rileggi);
+    return () => window.removeEventListener(EVENTO_DATI, rileggi);
+  }, [imposta]);
 }
 
 function salva(s: Stato) {
@@ -280,6 +290,7 @@ const Dettaglio = ({
 
 export const Sport = () => {
   const [stato, setStato] = React.useState<Stato>(() => leggi());
+  usaRilettura(setStato);
   const [aperto, setAperto] = React.useState<Esercizio | null>(null);
   const [query, setQuery] = React.useState("");
   const [schedaAperta, setSchedaAperta] = React.useState<string | null>(null);
