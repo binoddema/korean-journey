@@ -16,6 +16,7 @@ import { attivo, sb, sessione } from "./nuvola";
 
 const ARCHIVI = ["korean-journey-v1", "design-v1", "sport-v1"] as const;
 const META = "kj.meta";
+export const EVENTO_DATI = "kj:dati-aggiornati";
 
 type Stato = Record<string, unknown>;
 type Meta = { uid?: string; rev?: number; sporco?: boolean };
@@ -96,11 +97,28 @@ function raccogli(): Stato {
   return s;
 }
 
+/* Vero mentre stiamo scrivendo dati arrivati dal server: le scritture
+   fatte in questa finestra non devono far partire un altro salvataggio. */
+let applicando = false;
+
 /** Riscrive i tre archivi da un oggetto arrivato dal server. */
 function applicaInLocale(dati: Stato) {
-  for (const nome of ARCHIVI) {
-    if (dati[nome] === undefined) continue;
-    scritturaOriginale(nome, JSON.stringify(dati[nome]));
+  applicando = true;
+  try {
+    for (const nome of ARCHIVI) {
+      if (dati[nome] === undefined) continue;
+      scritturaOriginale(nome, JSON.stringify(dati[nome]));
+    }
+  } finally {
+    applicando = false;
+  }
+  // L'app rilegge subito gli archivi. Prima qui si ricaricava la pagina:
+  // è quello che buttava fuori dagli esercizi, e nel frattempo lo stato
+  // in memoria poteva riscrivere sopra i dati appena arrivati.
+  try {
+    window.dispatchEvent(new Event(EVENTO_DATI));
+  } catch {
+    /* ambiente senza window */
   }
 }
 
@@ -219,10 +237,6 @@ async function scriviRemoto(dati: Stato, attesoRev: number | null): Promise<numb
 
 /* ---------------- esiti ---------------- */
 
-/* Diventa true quando sta per partire una ricarica: da lì in poi
-   non si sincronizza più niente. */
-let ricaricando = false;
-
 /**
  * Applica i dati del server sul dispositivo.
  * Se viene passato localeLetto (lo stato letto all'inizio della
@@ -236,15 +250,8 @@ function adotta(dati: Stato, rev: number, uid: string, localeLetto?: Stato): boo
     ancoraUnaVolta = true;
     return false;
   }
-  applicaInLocale(dati);
   scriviMeta({ uid, rev, sporco: false });
-  // Lo store dell'app ha già letto gli archivi all'avvio: se scriviamo
-  // e basta, lui li risovrascrive con quelli vecchi. Quindi, quando i
-  // dati arrivati sono DAVVERO diversi da quelli in memoria, ricarichiamo.
-  if (diverso(prima, dati)) {
-    ricaricando = true;
-    setTimeout(() => window.location.reload(), 150);
-  }
+  applicaInLocale(dati);
   return true;
 }
 
@@ -298,7 +305,7 @@ export function sincronizza(): Promise<void> {
         ancoraUnaVolta = false;
         await unPasso();
         giri += 1;
-      } while (ancoraUnaVolta && !ricaricando && giri < 3);
+      } while (ancoraUnaVolta && giri < 3);
     } finally {
       inCorso = null;
     }
@@ -307,7 +314,6 @@ export function sincronizza(): Promise<void> {
 }
 
 async function unPasso(): Promise<void> {
-  if (ricaricando) return;
   if (!attivo || !sb) return segnala("spento");
 
   const s = await sessione();
@@ -433,6 +439,7 @@ export function salvaOra() {
 }
 
 function programmaSalvataggio() {
+  if (applicando) return;
   scriviMeta({ sporco: true });
   if (attesa) clearTimeout(attesa);
   attesa = setTimeout(() => {
