@@ -1,4 +1,5 @@
 import React from "react";
+import { EVENTO_DATI } from "../lib/sincro";
 import { Card } from "../components/ui";
 import { PageHeader } from "../components/Layout";
 import {
@@ -34,6 +35,15 @@ function leggi(): Sessione[] {
   } catch {
     return [];
   }
+}
+
+/** Rilegge l'archivio quando la sincronizzazione porta dati dal server. */
+function usaRilettura(imposta: (v: Sessione[]) => void) {
+  React.useEffect(() => {
+    const rileggi = () => imposta(leggi());
+    window.addEventListener(EVENTO_DATI, rileggi);
+    return () => window.removeEventListener(EVENTO_DATI, rileggi);
+  }, [imposta]);
 }
 
 function salva(v: Sessione[]) {
@@ -233,6 +243,7 @@ const Sessione = ({
 
 export const Design = () => {
   const [sessioni, setSessioni] = React.useState<Sessione[]>(() => leggi());
+  usaRilettura(setSessioni);
   const [apertura, setApertura] = React.useState<Esercizio | null>(null);
   const [areaAperta, setAreaAperta] = React.useState<Area | null>(null);
 
