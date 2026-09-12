@@ -9,6 +9,7 @@ import React, {
 import type { AppState, Difficulty, Settings } from "./types";
 import { addDays, autoRate, newCard, rateCard, todayStr } from "./lib/srs";
 import { ACHIEVEMENTS, derive } from "./lib/progress";
+import { EVENTO_DATI } from "./lib/sincro";
 
 const KEY = "korean-journey-v1";
 
@@ -153,6 +154,16 @@ export const StoreProvider = ({ children }: { children: React.ReactNode }) => {
       /* quota piena o storage non disponibile: l'app continua a funzionare */
     }
   }, [state]);
+
+  // Quando la sincronizzazione porta dati dal server, li si rilegge subito.
+  // Prima l'app ricaricava la pagina: si veniva buttati fuori dagli esercizi,
+  // e lo stato ancora in memoria poteva riscrivere sopra i dati appena
+  // arrivati, facendo tornare indietro gli XP.
+  useEffect(() => {
+    const rileggi = () => setState(load());
+    window.addEventListener(EVENTO_DATI, rileggi);
+    return () => window.removeEventListener(EVENTO_DATI, rileggi);
+  }, []);
 
   useEffect(() => {
     document.documentElement.dataset.theme = state.settings.dark ? "dark" : "light";
