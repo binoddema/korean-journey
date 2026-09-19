@@ -14,7 +14,17 @@ import { attivo, sb, sessione } from "./nuvola";
    la rete.
    ============================================================ */
 
-const ARCHIVI = ["korean-journey-v1", "design-v1", "sport-v1"] as const;
+const ARCHIVI = [
+  "korean-journey-v1",
+  "design-v1",
+  "sport-v1",
+  "diario-v1",
+  "risparmio-v1",
+  "portfolio-v1",
+  "universita-v1",
+  "calendario-v1",
+  "coach-v1",
+] as const;
 const META = "kj.meta";
 export const EVENTO_DATI = "kj:dati-aggiornati";
 
