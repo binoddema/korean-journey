@@ -2,37 +2,15 @@ import React from "react";
 import { useStore } from "../store";
 import { derive, levelInfo } from "../lib/progress";
 import { Bar } from "./ui";
+import { SEZIONI, sezione, type Page } from "../pagine";
 
-export type Page =
-  | "home"
-  | "coreano"
-  | "design"
-  | "sport"
-  | "courses"
-  | "vocab"
-  | "review"
-  | "exercises"
-  | "progress"
-  | "goals"
-  | "settings"
-  | "calendario"
-  | "diario"
-  | "portfolio";
+export type { Page };
 
-export const NAV: { id: Page; label: string; icon: string }[] = [
-  { id: "home", label: "Oggi", icon: "⌂" },
-  { id: "coreano", label: "Coreano", icon: "한" },
-  { id: "design", label: "Design", icon: "✎" },
-  { id: "sport", label: "Sport", icon: "🏋" },
-];
-
-const MENU_UTENTE: { id: Page; label: string; icon: string }[] = [
-  { id: "calendario", label: "Calendario", icon: "🗓" },
-  { id: "diario", label: "Diario", icon: "📓" },
-  { id: "portfolio", label: "Portfolio", icon: "🖼" },
-  { id: "progress", label: "Progressi", icon: "📊" },
-  { id: "goals", label: "Obiettivi", icon: "⭐" },
-  { id: "settings", label: "Impostazioni", icon: "⚙️" },
+const BASSO: { id: Page; label: string; icona: string }[] = [
+  { id: "home", label: "Oggi", icona: "⌂" },
+  { id: "coreano", label: "Coreano", icona: "한" },
+  { id: "design", label: "Design", icona: "✎" },
+  { id: "sport", label: "Sport", icona: "🏋" },
 ];
 
 const DENTRO_COREANO: Page[] = ["courses", "vocab", "review", "exercises"];
@@ -101,16 +79,17 @@ export const Layout = ({
   const lvl = levelInfo(state.xp);
   const d = derive(state);
   const [menuOpen, setMenuOpen] = React.useState(false);
-  const [coachOpen, setCoachOpen] = React.useState(false);
 
   const vai = (p: Page) => {
     setMenuOpen(false);
-    setCoachOpen(false);
     onNav(p);
   };
 
   const attiva = (id: Page) =>
     page === id || (id === "coreano" && DENTRO_COREANO.includes(page));
+
+  const titoloPagina =
+    page === "home" ? "Oggi" : sezione(page)?.label ?? "Korean Journey";
 
   return (
     <div className="app">
@@ -124,25 +103,22 @@ export const Layout = ({
         </div>
 
         <nav>
-          {NAV.map((n) => (
-            <button
-              key={n.id}
-              className={`nav-item ${attiva(n.id) ? "active" : ""}`}
-              onClick={() => vai(n.id)}
-            >
-              <span className="nav-icon">{n.icon}</span>
-              {n.label}
-            </button>
-          ))}
+          <button
+            className={`nav-item ${page === "home" ? "active" : ""}`}
+            onClick={() => vai("home")}
+          >
+            <span className="nav-icon">⌂</span>
+            Oggi
+          </button>
           <div className="nav-sep" />
-          {MENU_UTENTE.map((n) => (
+          {SEZIONI.map((s) => (
             <button
-              key={n.id}
-              className={`nav-item ${page === n.id ? "active" : ""}`}
-              onClick={() => vai(n.id)}
+              key={s.id}
+              className={`nav-item ${attiva(s.id) ? "active" : ""}`}
+              onClick={() => vai(s.id)}
             >
-              <span className="nav-icon">{n.icon}</span>
-              {n.label}
+              <span className="nav-icon">{s.icona}</span>
+              {s.label}
             </button>
           ))}
         </nav>
@@ -173,13 +149,13 @@ export const Layout = ({
           className="avatar-btn"
           aria-haspopup="true"
           aria-expanded={menuOpen}
-          aria-label="Apri menu utente"
+          aria-label="Apri il menu delle sezioni"
           onClick={() => setMenuOpen((v) => !v)}
         >
           {(state.name || "🙂").slice(0, 1).toUpperCase()}
         </button>
         <div className="tm-testo">
-          <strong>{[...NAV, ...MENU_UTENTE].find((n) => n.id === page)?.label ?? "Oggi"}</strong>
+          <strong>{titoloPagina}</strong>
           <small>{state.name || "Ospite"}</small>
         </div>
       </div>
@@ -188,10 +164,10 @@ export const Layout = ({
         <>
           <div className="velo" onClick={() => setMenuOpen(false)} />
           <div className="menu-utente">
-            {MENU_UTENTE.map((n) => (
-              <button key={n.id} onClick={() => vai(n.id)}>
-                <span className="mi">{n.icon}</span>
-                {n.label}
+            {SEZIONI.map((s) => (
+              <button key={s.id} onClick={() => vai(s.id)}>
+                <span className="mi">{s.icona}</span>
+                {s.label}
               </button>
             ))}
           </div>
@@ -200,29 +176,9 @@ export const Layout = ({
 
       <main className="main">{children}</main>
 
-      <button
-        className="fab-coach"
-        aria-label="Apri il coach"
-        onClick={() => setCoachOpen((v) => !v)}
-      >
-        💬
+      <button className="fab-coach" aria-label="Apri il coach" onClick={() => vai("coach")}>
+        🧭
       </button>
-
-      {coachOpen && (
-        <div className="pannello-coach">
-          <div className="pc-testata">
-            <span>Coach</span>
-            <button aria-label="Chiudi" onClick={() => setCoachOpen(false)}>
-              ✕
-            </button>
-          </div>
-          <p>
-            {d.dueWords > 0
-              ? `Hai ${d.dueWords} parole da ripassare. Il ripasso viene prima delle parole nuove: senza, quelle di ieri si perdono.`
-              : "Ripasso in pari. Oggi puoi aggiungere parole nuove."}
-          </p>
-        </div>
-      )}
 
       {d.dueWords > 0 && page !== "review" && (
         <button className="review-fab" onClick={() => vai("review")}>
@@ -231,16 +187,16 @@ export const Layout = ({
       )}
 
       <nav className="bottom-nav">
-        {NAV.map((n) => (
-          <button
-            key={n.id}
-            className={attiva(n.id) ? "active" : ""}
-            onClick={() => vai(n.id)}
-          >
-            <span>{n.icon}</span>
+        {BASSO.map((n) => (
+          <button key={n.id} className={attiva(n.id) ? "active" : ""} onClick={() => vai(n.id)}>
+            <span>{n.icona}</span>
             {n.label}
           </button>
         ))}
+        <button className={menuOpen ? "active" : ""} onClick={() => setMenuOpen((v) => !v)}>
+          <span>☰</span>
+          Tutto
+        </button>
       </nav>
     </div>
   );
