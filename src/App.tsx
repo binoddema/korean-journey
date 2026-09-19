@@ -1,13 +1,20 @@
 import React from "react";
-import { Layout, type Page } from "./components/Layout";
+import { Layout } from "./components/Layout";
+import type { Page } from "./pagine";
 import { Accesso, useSessione } from "./components/Accesso";
 import { attivo } from "./lib/nuvola";
 import { sincronizza, avviaSincro } from "./lib/sincro";
 import { Home } from "./pages/Home";
 import { Coreano } from "./pages/Coreano";
-import { Presto } from "./pages/Presto";
 import { Design } from "./pages/Design";
 import { Sport } from "./pages/Sport";
+import { Diario } from "./pages/Diario";
+import { Risparmio } from "./pages/Risparmio";
+import { Portfolio } from "./pages/Portfolio";
+import { Universita } from "./pages/Universita";
+import { Calendario } from "./pages/Calendario";
+import { Coach } from "./pages/Coach";
+import { Trofei } from "./pages/Trofei";
 import { Courses } from "./pages/Courses";
 import { Vocabulary } from "./pages/Vocabulary";
 import { Review } from "./pages/Review";
@@ -32,8 +39,8 @@ export default function App() {
     });
     return () => ferma?.();
   }, [sessione]);
-  const [lessonId, setLessonId] = React.useState<string | null>(null);
 
+  const [lessonId, setLessonId] = React.useState<string | null>(null);
   const lesson = lessonId ? getLesson(lessonId) : undefined;
 
   const nav = (p: Page) => {
@@ -53,8 +60,26 @@ export default function App() {
     switch (page) {
       case "home":
         return <Home onNav={nav} onStart={start} />;
+      case "diario":
+        return <Diario />;
       case "coreano":
         return <Coreano onNav={nav} />;
+      case "design":
+        return <Design />;
+      case "risparmio":
+        return <Risparmio />;
+      case "sport":
+        return <Sport />;
+      case "portfolio":
+        return <Portfolio />;
+      case "calendario":
+        return <Calendario />;
+      case "universita":
+        return <Universita />;
+      case "coach":
+        return <Coach onNav={nav} />;
+      case "trofei":
+        return <Trofei />;
       case "courses":
         return <Courses onStart={start} />;
       case "vocab":
@@ -69,22 +94,6 @@ export default function App() {
         return <Goals />;
       case "settings":
         return <SettingsPage />;
-      case "design":
-        return <Design />;
-      case "sport":
-        return <Sport />;
-      case "calendario":
-        return <Presto icon="🗓" titolo="Calendario" testo="Qui arriverà il calendario degli impegni." />;
-      case "diario":
-        return <Presto icon="📓" titolo="Diario" testo="Qui arriverà il diario delle sessioni." />;
-      case "portfolio":
-        return (
-          <Presto
-            icon="🖼"
-            titolo="Portfolio"
-            testo="Qui arriveranno le foto dei lavori, in sola lettura."
-          />
-        );
       default:
         return <Home onNav={nav} onStart={start} />;
     }
@@ -93,7 +102,11 @@ export default function App() {
   if (attivo && !pronto) return null;
   if (attivo && !sessione) return <Accesso />;
   if (attivo && !sincronizzato)
-    return <div className="accesso"><p className="muted center">Sincronizzo…</p></div>;
+    return (
+      <div className="accesso">
+        <p className="muted center">Sincronizzo…</p>
+      </div>
+    );
 
   return (
     <Layout page={page} onNav={nav}>
